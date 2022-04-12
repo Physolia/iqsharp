@@ -1,9 +1,8 @@
 ##
-# Build and test IQ#.
+# Move build artifacts and create conda environment
 ##
 
 steps:
-
 ##
 # Pre-reqs
 ##
@@ -12,29 +11,123 @@ steps:
     artifactName: iqsharp
     downloadPath: '$(System.DefaultWorkingDirectory)/artifacts'
 
-- pwsh: |
-    Move-Item "$Env:SYSTEM_DEFAULTWORKINGDIRECTORY/artifacts/iqsharp/drops" "$Env:SYSTEM_DEFAULTWORKINGDIRECTORY/drops"
+- pwsh: Move-Item "$Env:SYSTEM_DEFAULTWORKINGDIRECTORY/artifacts/iqsharp/drops" "$Env:SYSTEM_DEFAULTWORKINGDIRECTORY/drops"
   displayName: "Move build artifacts to IQ# working directory"
 
-- task: CondaEnvironment@1
-  inputs:
-    packageSpecs: "python=3.7 pip setuptools pytest jupyter numpy conda-build=3.18.8 conda-package-handling=1.3.11"
-  displayName: 'Use conda environment w/ Python 3.7'
+##
+# Create conda environment
+##
+- script: |
+    conda create --yes --quiet --name conda_env
+  displayName: Create Anaconda environment
+  condition: or(eq(variables.OperatingSystem, 'linux'), eq(variables.OperatingSystem, 'mac'))
+
+- pwsh: |
+    $(CONDA)/scripts/conda.exe create --yes --quiet --name conda_env
+  displayName: Create Anaconda environment pwsh
+  condition: eq(variables.OperatingSystem, 'windows')
+
+- pwsh: |
+    C:\Miniconda3\Scripts\conda.exe create --yes --quiet --name conda_env
+  displayName: Create Anaconda environment pwsh
+  condition: eq(variables.OperatingSystem, 'windows-test')
 
 ##
-# Pack conda packages
+# Install conda packages
 ##
-- pwsh: .\pack-conda.ps1
+- script: |
+    conda install --yes --quiet --name conda_env python=3.7 pip setuptools pytest jupyter numpy conda-build=3.18.8 conda-package-handling=1.3.11
+  displayName: Install Anaconda packages
+  condition: or(eq(variables.OperatingSystem, 'linux'), eq(variables.OperatingSystem, 'mac'))
+
+- pwsh: |
+    $(CONDA)/scripts/conda.exe install --yes --quiet --name conda_env python=3.7 pip setuptools pytest jupyter numpy conda-build=3.18.8 conda-package-handling=1.3.11
+  displayName: Install Anaconda packages
+  condition: eq(variables.OperatingSystem, 'windows')
+
+- pwsh: |
+    C:\Miniconda3\Scripts\conda.exe install --yes --quiet --name base conda-build=3.18.8
+    C:\Miniconda3\Scripts\conda.exe install --yes --quiet --name conda_env python=3.7 pip setuptools pytest jupyter numpy conda-build=3.18.8 conda-package-handling=1.3.11
+  displayName: Install Anaconda packages
+  condition: eq(variables.OperatingSystem, 'windows-test')
+
+##
+# Pack conda packages for each OS
+##
+- script: |
+    eval "$('/usr/bin/conda' 'shell.bash' 'hook')"
+    conda activate conda_env
+    conda info
+    pwsh ./pack-conda.ps1
   displayName: "Packing IQ# packages"
   workingDirectory: '$(System.DefaultWorkingDirectory)/build'
+  condition: eq(variables.OperatingSystem, 'linux')
+
+- script: |
+    eval "$('/usr/local/bin/conda' 'shell.bash' 'hook')"
+    conda activate conda_env
+    conda info
+    pwsh ./pack-conda.ps1
+  displayName: "Packing IQ# packages"
+  workingDirectory: '$(System.DefaultWorkingDirectory)/build'
+  condition: eq(variables.OperatingSystem, 'mac')
+
+- pwsh: |
+    (& "C:\Miniconda\scripts\conda.exe" "shell.powershell" "hook") | Out-String | Invoke-Expression
+    conda activate conda_env
+    conda info
+    pwsh ./pack-conda.ps1
+  displayName: "Packing IQ# packages"
+  workingDirectory: '$(System.DefaultWorkingDirectory)/build'
+  condition: eq(variables.OperatingSystem, 'windows')
+
+- pwsh: |
+    (& "C:\Miniconda3\Scripts\conda.exe" "shell.powershell" "hook") | Out-String | Invoke-Expression
+    conda activate base
+    conda info
+    pwsh -NoProfile -Command ./pack-conda.ps1
+  displayName: "Packing IQ# packages"
+  workingDirectory: '$(System.DefaultWorkingDirectory)/build'
+  condition: eq(variables.OperatingSystem, 'windows-test')
 
 ##
-# Test conda packages
+# Test conda packages for each OS
 ##
-- pwsh: .\test-conda.ps1
+- script: |
+    eval "$('/usr/bin/conda' 'shell.bash' 'hook')"
+    conda activate conda_env
+    conda info
+    pwsh ./test-conda.ps1
   displayName: "Testing IQ# packages"
   workingDirectory: '$(System.DefaultWorkingDirectory)/build'
-  condition: and(succeeded(), ne(variables['Skip.Tests'], 'true'))
+  condition: and(succeeded(), ne(variables['Skip.Tests'], 'true'), eq(variables.OperatingSystem, 'linux'))
+
+- script: |
+    eval "$('/usr/local/bin/conda' 'shell.bash' 'hook')"
+    conda activate conda_env
+    conda info
+    pwsh ./test-conda.ps1
+  displayName: "Testing IQ# packages"
+  workingDirectory: '$(System.DefaultWorkingDirectory)/build'
+  condition: and(succeeded(), ne(variables['Skip.Tests'], 'true'), eq(variables.OperatingSystem, 'mac'))
+
+- pwsh: |
+    (& "C:\Miniconda\scripts\conda.exe" "shell.powershell" "hook") | Out-String | Invoke-Expression
+    conda activate conda_env
+    conda info
+    pwsh ./test-conda.ps1
+  displayName: "Testing IQ# packages"
+  workingDirectory: '$(System.DefaultWorkingDirectory)/build'
+  condition: and(succeeded(), ne(variables['Skip.Tests'], 'true'), eq(variables.OperatingSystem, 'windows'))
+
+- pwsh: |
+    (& "C:\Miniconda3\Scripts\conda.exe" "shell.powershell" "hook") | Out-String | Invoke-Expression
+    conda activate conda_env
+    conda info
+    pwsh ./test-conda.ps1
+  displayName: "Testing IQ# packages"
+  workingDirectory: '$(System.DefaultWorkingDirectory)/build'
+  condition: and(succeeded(), ne(variables['Skip.Tests'], 'true'), eq(variables.OperatingSystem, 'windows-test'))
 
 ##
 # Publish build artifacts.
